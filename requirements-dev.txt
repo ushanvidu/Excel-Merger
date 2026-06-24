@@ -1,0 +1,3 @@
+# Dev/test-only dependencies (not needed to run the app).
+# Used by make_samples.py and tests/ to generate sample PDFs.
+reportlab>=4.0
