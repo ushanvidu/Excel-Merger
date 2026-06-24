@@ -43,6 +43,11 @@ def main() -> int:
     # SB1800 antenna row must be classified as antenna, not sector
     if res.sections["Sector Details"]["Sector"].astype(str).str.contains("SB").any():
         _fail("SB antenna row leaked into Sector Details")
+    # Geometry reconstruction must capture the full band token (no truncation):
+    # the per-sector suffix _P/_Q/_R was previously dropped by extract_tables.
+    sol_tokens = set(res.sections["Solution Sector Details"]["Sector"].astype(str))
+    if not any(t.endswith(("_P", "_Q", "_R")) for t in sol_tokens):
+        _fail(f"band-token suffix truncated (geometry regressed): {sorted(sol_tokens)}")
 
     # 2. Multi-sheet workbook export has the expected topic sheets.
     wb = load_workbook(io.BytesIO(to_workbook_bytes([res])))
@@ -78,6 +83,20 @@ def main() -> int:
     print(f"Verified {checked} GMALG1 rows (azimuth filled, status blank)")
     if checked < 15:
         _fail(f"expected to verify >=15 rows, got {checked}")
+
+    # 5. Unit checks for the matching/reconciliation helpers.
+    from pdf_excel_merger.tssr_fill import antenna_num, suffix_ordinal
+    if antenna_num("Antenna 2") != 2 or antenna_num("8-Port_Antenna") is not None:
+        _fail("antenna_num parsing wrong")
+    cases = {"1800|L1800_P": 1, "L850_3": 3, "UMTS_Y": 3, "L2.6_sec2": 2,
+             "900_C": 3, "L850_1": 1}
+    for tok, exp in cases.items():
+        if suffix_ordinal(tok) != exp:
+            _fail(f"suffix_ordinal({tok!r})={suffix_ordinal(tok)}, expected {exp}")
+    # GMALG1 is a clean site -> no sector conflicts expected.
+    if report.conflicts:
+        _fail(f"GMALG1 should have no conflicts, got {report.conflicts}")
+    print("Helper checks passed (antenna_num, suffix_ordinal, 0 conflicts)")
 
     print("\nALL TSSR CHECKS PASSED ✅")
     return 0

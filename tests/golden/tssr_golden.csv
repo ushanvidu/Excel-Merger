@@ -1,0 +1,35 @@
+# Golden ground-truth for the TSSR -> RF Parameter fill.
+# Hand-transcribed from each PDF's *Solution* Antenna/Sector Details tables —
+# independent of the pipeline's matching logic, so this measures real accuracy.
+# Keyed by the master row's (Site, Tech, Band, Azimuth=Antenna azimuth_Mbitel).
+# Cell values:  a value = expected exactly | BLANK = expected empty | ? = not scored
+# GMALG1: 1-indexed sectors, azimuth_Mbitel == surveyed direction (10/200/270).
+# GMDAD1: 0-indexed sectors, azimuth_Mbitel (90/210/330) != surveyed direction (70/160/240).
+Site,Tech,Band,Azimuth,Antenna_TSSR,Antenna height_TSSR,Antenna azimuth_TSSR,Mechanical tilt_TSSR,Electrical tilt_TSSR
+GMALG1,2G,900,10,?,60,10,BLANK,BLANK
+GMALG1,2G,1800,10,Dual-Beam,60,10,1,4
+GMALG1,4G,850,10,8-Port_Antenna,60,10,0,4
+GMALG1,4G,1800,10,Dual-Beam,60,10,1,4
+GMALG1,4G,2100,10,Dual-Beam,60,10,1,5
+GMALG1,2G,900,200,?,60,200,BLANK,BLANK
+GMALG1,2G,1800,200,8-Port_Antenna,60,200,0,4
+GMALG1,4G,850,200,8-Port_Antenna,60,200,0,4
+GMALG1,4G,1800,200,8-Port_Antenna,60,200,0,4
+GMALG1,4G,2100,200,8-Port_Antenna,60,200,0,6
+GMALG1,2G,900,270,?,60,270,BLANK,BLANK
+GMALG1,2G,1800,270,TB,60,270,0,4
+GMALG1,4G,850,270,TB,60,270,0,4
+GMALG1,4G,1800,270,TB,60,270,0,4
+GMALG1,4G,2100,270,SB1800HighGain,60,270,1,3
+GMDAD1,2G,1800,90,8-Port_Antenna,41,70,2,0
+GMDAD1,4G,1800,90,8-Port_Antenna,41,70,2,0
+GMDAD1,4G,850,90,8-Port_Antenna,41,70,2,6
+GMDAD1,4G,2100,90,8-Port_Antenna,41,70,BLANK,BLANK
+GMDAD1,2G,1800,210,8-Port_Antenna,41,160,1,0
+GMDAD1,4G,1800,210,8-Port_Antenna,41,160,1,0
+GMDAD1,4G,850,210,8-Port_Antenna,41,160,1,8
+GMDAD1,4G,2100,210,8-Port_Antenna,41,160,BLANK,BLANK
+GMDAD1,2G,1800,330,8-Port_Antenna,38.5,240,2,0
+GMDAD1,4G,1800,330,8-Port_Antenna,38.5,240,2,0
+GMDAD1,4G,850,330,8-Port_Antenna,38.5,240,2,6
+GMDAD1,4G,2100,330,8-Port_Antenna,38.5,240,BLANK,BLANK

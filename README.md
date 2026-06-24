@@ -1,125 +1,101 @@
 # Network Site Sheet Filler
 
-Fill a **master Excel sheet** (one row per network site across Sri Lanka) from
-**per-site documents**. Each document describes ONE site and may be a **PDF**
-(converted to Excel automatically) or an **already-converted Excel/CSV**. The app
-identifies each document's site, finds its row in the master sheet by **Site ID
-or Site Name**, and fills the mapped fields into that row.
+A Streamlit app that fills a **master site sheet** from **TSSR survey documents**.
+Upload the master plus the site PDFs (or already-converted Excel), choose which
+columns to fill and where each comes from, and download the filled sheet. Each
+site row is matched by **Site + Sector + Band**; only the chosen cells are
+written, so existing formatting, formulas and other sheets are preserved.
 
-## TSSR workflow (InfraMS survey PDFs → master RF Parameter sheet)
+Two tools (sidebar):
 
-The app has two purpose-built pages (sidebar) for the TSSR / network-sites use case:
+- **🗂 Fill Master Sheet** — match documents to master rows and fill the columns
+  you select. Columns and their source fields are fully configurable, so it
+  works with any master and any TSSR PDFs (not just samples).
+- **📄 Convert TSSR to Excel** — turn TSSR PDFs into clean, topic-divided sheets
+  (Antenna / Sector / Solution details + extraction log).
 
-**1. TSSR to Excel** — convert one or more InfraMS TSSR PDFs into a clean,
-topic-divided workbook: `Summary`, `Antenna Details`, `Sector Details`,
-`Solution Antenna Details`, `Solution Sector Details`, `Extraction Log`. Wrapped
-cells (`Sect/or 1` → `Sector 1`, `L850 _1` → `L850_1`) are de-wrapped and mapped
-onto the fixed template schema. Download the multi-sheet `.xlsx`.
-
-**2. Fill Master Sheet** — fill the master `RF Parameter` sheet's TSSR columns
-(`Antenna_TSSR`, `Antenna height_TSSR`, `Antenna azimuth_TSSR`,
-`Mechanical tilt_TSSR`, `Electrical tilt_TSSR`) from the PDFs' **Solution**
-tables. Each master row (Sector × Band) is matched by **Sector + Band**; the
-sector is recovered from `Antenna azimuth_Mbitel` when the `Sector` cell is
-`#REF!`. The band → PDF-token mapping is editable in the UI. `TSSR Status` is
-left blank. Only the mapped cells are written — formatting and other sheets are
-preserved. A per-row report shows exactly what filled each row.
-
-Code: `pdf_excel_merger/tssr_extractor.py` (extraction + topic-sheet export) and
-`pdf_excel_merger/tssr_fill.py` (master fill). Tested end-to-end against the real
-GMALG1 PDF + `Noding Config` master in `tests/test_tssr.py`.
-
-## What it does (generic key-based merge)
-
-1. **Upload the master sheet** — one row per site, with a key column (Site ID /
-   Site Name) and the data columns to fill.
-2. **Upload per-site documents** — PDFs *and/or* Excel/CSV, mixed, many at once.
-   PDFs are **converted to Excel** (downloadable) as an explicit step.
-3. **Match** each document to the correct site row:
-   - **Exact** match on a normalized key (`COL-001` = `col 001` = `COL001`) —
-     ideal for site IDs.
-   - **Fuzzy** fallback for site *names* with small spelling/format differences
-     (gated by a threshold and reported, so you can verify).
-4. **Map fields** — choose which document field fills each master column
-   (auto-suggested via fuzzy + business-term synonyms; you confirm).
-5. **Generate** the filled master sheet — only the matched rows' mapped cells are
-   written; existing formatting, formulas and other sheets are preserved.
-   Unmatched sites are reported (and optionally appended as new rows).
-
-## Key features
-
-- **Dual input** — PDF (auto-converted) or Excel/CSV, in one run.
-- **One-site forms** — two-column `Parameter | Value` documents are pivoted into a
-  record automatically (`Document layout = Auto / Key-value`).
-- **Update-by-key** — fills the *existing* site's row instead of appending blindly.
-- **Editable review** — fix any extracted value or site key before matching.
-- **Match preview + report** — see exactly which document mapped to which row,
-  by exact/fuzzy, with confidence, before and after generating.
-- **Type-aware** — numbers, dates and text are coerced to land correctly.
-
-## Quick start
+## Run locally
 
 ```bash
 cd "Excel App"
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-
-# (optional) generate the sample network-sites scenario
-pip install -r requirements-dev.txt
-python make_samples.py
-
-# launch
-streamlit run app.py        # or: ./run.sh
+streamlit run app.py          # or ./run.sh
 ```
 
 Opens at <http://localhost:8501>.
 
+## Deploy with Docker
+
+```bash
+docker build -t site-sheet-filler .
+docker run -p 8501:8501 site-sheet-filler
+```
+
+The image contains only the app (`app.py`, `views/`, `pdf_excel_merger/`,
+`.streamlit/`) — no samples, tests, or virtualenv. It can also be deployed to
+Streamlit Community Cloud (point it at `app.py`) or any container host.
+
 ## How to use
 
-1. Upload the **master sheet**; pick the sheet + confirm the header row.
-2. Upload **PDF** documents (left) and/or **Excel/CSV** documents (right).
-3. Pick **Document layout** (`auto` works for most) and **PDF table style**, then
-   **Convert & load**.
-4. Review each converted document (download as Excel if you like) and fix any
-   values in the combined table.
-5. Confirm the **master key column** and **source key field** (auto-detected) and
-   check the **match preview**.
-6. Confirm the **field mapping**, choose how to handle **unmatched** sites, and
-   click **Fill master sheet**, then **download**.
+1. **Upload** the master `.xlsx` and the site TSSR **PDFs** (and/or an
+   already-converted Excel — both are combined best-of-both).
+2. Confirm the **sheet**, **header row**, and the **key columns** (Site / Sector /
+   Band / azimuth — auto-detected; under *Key columns & data source*).
+3. Choose the **columns to fill** (TSSR columns are pre-selected) and the
+   **document field** that feeds each (auto-mapped; editable).
+4. Click **Fill master sheet**, review the report (incl. any **sector conflicts
+   flagged for review**), and **download**.
+
+## How it works
+
+- **Extraction** (`pdf_excel_merger/tssr_extractor.py`): rebuilds each table cell
+  from pdfplumber word geometry inside the `find_tables` grid — no truncation,
+  robust to wrapped headers and faint borders.
+- **Matching** (`pdf_excel_merger/tssr_fill.py`): resolves each master row's
+  sector from azimuth (falling back to the Sector column with a 0/1-based
+  offset), matches the Solution row by band, and reads the mapped fields.
+  The band-token suffix (`_P`/`_1`/`_W`…) independently encodes the sector and is
+  used to break ties and **flag conflicts** rather than guess silently.
+
+## Testing & accuracy
+
+```bash
+source .venv/bin/activate
+pip install -r requirements-dev.txt   # reportlab, for sample generation
+python -m tests.test_tssr             # TSSR extract + fill, unit checks
+python -m tests.test_pipeline         # generic key-based merge
+python -m tests.accuracy_harness      # measured accuracy vs golden ground truth
+```
+
+The **accuracy harness** runs the real pipeline and compares written cells to a
+hand-verified ground truth (`tests/golden/tssr_golden.csv`, covering a 1-indexed
+and a 0-indexed site), reporting per-field accuracy / precision / recall and
+gating at 90% (currently **100%**).
 
 ## Project layout
 
 ```
 Excel App/
-├── app.py                       # Streamlit UI (entry point)
-├── pdf_excel_merger/
-│   ├── source_loader.py         # PDF->Excel conversion + Excel/CSV loading + orientation
-│   ├── pdf_extractor.py         # PDF -> table extraction
-│   ├── excel_reader.py          # read master: sheets, header row, columns, key values
-│   ├── site_matching.py         # detect key column, normalize + match site keys
-│   ├── mapping.py               # fuzzy + synonym field auto-mapping
-│   ├── merger.py                # match-by-key update (+ append) into the master sheet
-│   └── utils.py                 # header normalization + value coercion
-├── make_samples.py              # generate the network-sites sample scenario
-├── tests/test_pipeline.py       # headless end-to-end test
+├── app.py                       # entry point (st.navigation)
+├── views/
+│   ├── fill.py                  # Fill Master Sheet page
+│   └── convert.py               # Convert TSSR to Excel page
+├── pdf_excel_merger/            # engine (UI-agnostic, tested)
+│   ├── tssr_extractor.py        # PDF -> topic tables (geometry-based)
+│   ├── tssr_fill.py             # match-by-key fill (configurable field map)
+│   ├── excel_reader.py          # read master: sheets, header, columns
+│   └── …                        # generic merge helpers + utils
+├── tests/                       # test_tssr, test_pipeline, accuracy_harness, golden/
+├── Dockerfile / .dockerignore   # deployment
 ├── requirements.txt             # runtime deps
-└── requirements-dev.txt         # test/sample-generation deps (reportlab)
-```
-
-## Run the test
-
-```bash
-source .venv/bin/activate
-pip install -r requirements-dev.txt
-python -m tests.test_pipeline
+└── requirements-dev.txt         # test/sample-generation deps
 ```
 
 ## Notes & limits
 
-- Built for **text-based** PDFs. Scanned/image PDFs need OCR — not included yet
-  (can be added as a fallback).
-- Tune for your data: extend the site-key hints in `site_matching.py`
-  (`_KEY_HINTS`) and the field synonyms in `mapping.py` (`_SYNONYM_GROUPS`).
-- If a PDF's table isn't detected, switch **PDF table style** between `lines`
-  (bordered) and `text` (borderless), or set **Document layout** explicitly.
+- Built for **text-based** TSSR PDFs (InfraMS template). Scanned/image PDFs would
+  need OCR (not included).
+- The band→token map and field map are editable in the UI for other layouts.
+- Rows whose source data is ambiguous are **flagged for review**, never filled
+  with a silent guess.

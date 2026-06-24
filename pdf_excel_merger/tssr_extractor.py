@@ -46,11 +46,12 @@ SECTION_SCHEMAS = {
 
 META_COLS = ["Source File", "Site ID", "Source Page"]
 
-_SECTOR_RE = re.compile(r"(?i)^sector0*(\d+)$")
-_ANTENNA_RE = re.compile(r"(?i)^antenna0*(\d+)$")
+# Space-tolerant: geometry reconstruction preserves real spaces ("Sector 2").
+_SECTOR_RE = re.compile(r"(?i)^sect\w*\s*0*(\d+)$")
+_ANTENNA_RE = re.compile(r"(?i)^anten\w*\s*0*(\d+)$")
 # A "Sector" (band/cell) value rather than an antenna type.
 _BAND_RE = re.compile(
-    r"(?i)(l\s?850|1800|2100|2600|l2\.?6|umts|gsm|900|n\d{2,3}|w$|_[pqrs]$|sec\d)"
+    r"(?i)(l\s?850|1800|2100|2600|l2\.?[36]|umts|gsm|900|n\d{2,3}|w$|_[pqrs]$|sec\s?\d)"
 )
 
 
@@ -62,16 +63,39 @@ class TssrResult:
     warnings: list[str] = field(default_factory=list)
 
 
-def _collapse(cell) -> str:
-    """Remove whitespace inserted by line wrapping: 'Sect or 1' -> 'Sector1'."""
-    if cell is None:
+# Vertical distance (pt) within which words are treated as the same text line.
+_LINE_TOL = 4.0
+
+
+def _reconstruct_cell(words: list[dict]) -> str:
+    """Rebuild a cell's text from the words inside its bbox, using geometry.
+
+    Words on the *same* line keep their real space; words *stacked* across lines
+    are a line-wrap and are joined with no space — so "Sector" split as
+    "Secto"/"r" rejoins correctly, while "Head"/"Frame" keeps its space, and a
+    value wrapped over many lines (e.g. "1800|L1800_P") is never truncated.
+    """
+    if not words:
         return ""
-    return re.sub(r"\s+", "", str(cell))
+    ordered = sorted(words, key=lambda w: (round(w["top"], 1), w["x0"]))
+    lines: list[list[dict]] = [[ordered[0]]]
+    top = ordered[0]["top"]
+    for w in ordered[1:]:
+        if abs(w["top"] - top) <= _LINE_TOL:
+            lines[-1].append(w)
+        else:
+            lines.append([w])
+            top = w["top"]
+    line_texts = [
+        " ".join(w["text"] for w in sorted(ln, key=lambda w: w["x0"]))
+        for ln in lines
+    ]
+    return re.sub(r"\s+", " ", "".join(line_texts)).strip()
 
 
 def _fields(row: list) -> list[str]:
-    """Collapse each cell and drop structurally-empty cells."""
-    return [c for c in (_collapse(x) for x in row) if c != ""]
+    """Strip cells and drop structurally-empty ones (no whitespace collapse)."""
+    return [c for c in (str(x or "").strip() for x in row) if c]
 
 
 def _is_data_row(fields: list[str]) -> bool:
@@ -134,6 +158,38 @@ def parse_site_id(filename: str, page_text: str = "") -> str:
     return m.group(1) if m else base
 
 
+def _extract_rows_geometry(page) -> list[list[str]]:
+    """Reconstruct table rows from word geometry.
+
+    Uses the ruling-line table finder to get the column/row grid, then fills
+    each cell from the words whose centre lies inside its bbox — so nothing is
+    truncated and words land in the right column even when the cell text is
+    wrapped. Falls back to pdfplumber's text-based ``extract_tables`` if no
+    ruled table is found on the page.
+    """
+    words = page.extract_words(use_text_flow=False, keep_blank_chars=False)
+    rows: list[list[str]] = []
+    for table in page.find_tables():
+        for trow in table.rows:
+            cells: list[str] = []
+            for bbox in trow.cells:
+                if bbox is None:
+                    cells.append("")
+                    continue
+                x0, top, x1, bottom = bbox
+                inside = [
+                    w for w in words
+                    if x0 <= (w["x0"] + w["x1"]) / 2 <= x1
+                    and top <= (w["top"] + w["bottom"]) / 2 <= bottom
+                ]
+                cells.append(_reconstruct_cell(inside))
+            rows.append(cells)
+    if not rows:
+        for table in page.extract_tables():
+            rows.extend([str(c or "") for c in raw] for raw in table)
+    return rows
+
+
 def extract_tssr(file: str | bytes, *, filename: str = "", site_id: str | None = None) -> TssrResult:
     """Parse one TSSR PDF into its four data sections."""
     handle = io.BytesIO(file) if isinstance(file, (bytes, bytearray)) else file
@@ -151,27 +207,26 @@ def extract_tssr(file: str | bytes, *, filename: str = "", site_id: str | None =
             if "Solution Antenna Details" in text or "Solution Sector Details" in text:
                 is_solution = True
 
-            for table in page.extract_tables():
-                for raw in table:
-                    fields = _fields(raw)
-                    if not _is_data_row(fields):
-                        continue
-                    kind = _classify(fields)
-                    if kind == "antenna":
-                        section = "Solution Antenna Details" if is_solution else "Antenna Details"
-                    else:
-                        section = "Solution Sector Details" if is_solution else "Sector Details"
-                    record, warn = _row_to_schema(fields, SECTION_SCHEMAS[section])
-                    record = {"Source File": filename, "Site ID": sid,
-                              "Source Page": page_no, **record}
-                    rows_by_section[section].append(record)
-                    log.append({
-                        "Source Page": page_no, "Section": section,
-                        "Sector No": record["Sector No"], "Antenna No": record["Antenna No"],
-                        "Fields": len(fields), "Note": warn or "ok",
-                    })
-                    if warn:
-                        warnings.append(f"[p{page_no} {section}] {warn}: {fields[:4]}")
+            for raw in _extract_rows_geometry(page):
+                fields = _fields(raw)
+                if not _is_data_row(fields):
+                    continue
+                kind = _classify(fields)
+                if kind == "antenna":
+                    section = "Solution Antenna Details" if is_solution else "Antenna Details"
+                else:
+                    section = "Solution Sector Details" if is_solution else "Sector Details"
+                record, warn = _row_to_schema(fields, SECTION_SCHEMAS[section])
+                record = {"Source File": filename, "Site ID": sid,
+                          "Source Page": page_no, **record}
+                rows_by_section[section].append(record)
+                log.append({
+                    "Source Page": page_no, "Section": section,
+                    "Sector No": record["Sector No"], "Antenna No": record["Antenna No"],
+                    "Fields": len(fields), "Note": warn or "ok",
+                })
+                if warn:
+                    warnings.append(f"[p{page_no} {section}] {warn}: {fields[:4]}")
 
     sections: dict[str, pd.DataFrame] = {}
     for name, schema in SECTION_SCHEMAS.items():

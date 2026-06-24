@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.git/
+.gitignore
+.DS_Store
+sample_data/
+tests/
+mapping_profiles/
+make_samples.py
+requirements-dev.txt
+README.md
+*.md
